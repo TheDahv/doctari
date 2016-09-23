@@ -12,27 +12,55 @@ import String
 
 type alias Model =
     { docTitle : String
-    , structure : List Content
+    , document : Content
     , headingWithEditor : Maybe Content
     , newHeadingText : String
     , activeHeading : Maybe Content
     }
 
 
+{-| TODO: Fix this type since there is only one version
+-}
+type alias Content =
+    { title : String
+    , copy : String
+    , children : Children
+    }
+
+
+type Children
+    = Children (List Content)
+
+
+mapChildren : (Content -> Content) -> Children -> Children
+mapChildren fn (Children children) =
+    Children (List.map fn children)
+
+
 empty : Model
 empty =
     { docTitle = ""
-    , structure =
-        [ Heading "Heading 1.1"
-            "_hello world_"
-            [ Heading "Heading 1.1.1" "" [] ]
-        , Heading "Heading 1.2"
-            ""
-            [ Heading "Heading 1.2.1" "" [] ]
-        , Heading "Heading 1.3"
-            ""
-            [ Heading "Heading 1.3.1" "" [] ]
-        ]
+    , document =
+        { title = "Doc Title"
+        , copy = ""
+        , children =
+            Children
+                [ { title = "Heading 1"
+                  , copy = "_lol some copy_"
+                  , children =
+                        Children
+                            [ { title = "Heading 1.1.1"
+                              , copy = "We needa clear dis up"
+                              , children = Children []
+                              }
+                            ]
+                  }
+                , { title = "Heading 2"
+                  , copy = "_lol some other copy_"
+                  , children = Children []
+                  }
+                ]
+        }
     , headingWithEditor = Nothing
     , newHeadingText = ""
     , activeHeading = Nothing
@@ -52,41 +80,38 @@ type Msg
     | UpdateCopy Content String
 
 
-{-| TODO: Fix this type since there is only one version
--}
-type Content
-    = Heading String String (List Content)
+addNewHeading : Content -> Content -> Content -> Content
+addNewHeading parentHeading newHeading document =
+    let
+        addToChildren (Children children) content =
+            Children (children ++ ([ content ]))
+    in
+        -- Walk tree to find target heading
+        if document == parentHeading then
+            -- Found the heading, so add this new content to the child
+            { document
+                | children = addToChildren document.children newHeading
+            }
+        else
+            { document
+                | children =
+                    mapChildren
+                        (addNewHeading parentHeading newHeading)
+                        document.children
+            }
 
 
-addNewHeading : List Content -> Content -> Content -> List Content
-addNewHeading document parentHeading newHeading =
-    -- Walk tree to find target heading
-    document
-        |> List.map
-            (\content ->
-                case content of
-                    Heading title copy children ->
-                        if content == parentHeading then
-                            -- Found the heading. Add the new heading to its subheadings
-                            Heading title copy (children ++ [ newHeading ])
-                        else
-                            -- Ok, recurse through each child until we find it
-                            Heading title copy (addNewHeading children parentHeading newHeading)
-            )
-
-
-addCopyToHeading : List Content -> Content -> String -> List Content
-addCopyToHeading document parentHeading newCopy =
-    document
-        |> List.map
-            (\content ->
-                case content of
-                    Heading title copy children ->
-                        if content == parentHeading then
-                            Heading title newCopy children
-                        else
-                            Heading title copy (addCopyToHeading children parentHeading newCopy)
-            )
+addCopyToHeading : Content -> String -> Content -> Content
+addCopyToHeading parentHeading newCopy document =
+    if document == parentHeading then
+        { document | copy = newCopy }
+    else
+        { document
+            | children =
+                mapChildren
+                    (addCopyToHeading parentHeading newCopy)
+                    document.children
+        }
 
 
 update : Msg -> Model -> Model
@@ -104,13 +129,11 @@ update msg model =
         AddHeading parentHeading ->
             let
                 newHeading =
-                    Heading model.newHeadingText "" []
+                    Content model.newHeadingText "" (Children [])
             in
                 { model
-                    | structure =
-                        addNewHeading model.structure
-                            parentHeading
-                            newHeading
+                    | document =
+                        addNewHeading parentHeading newHeading model.document
                 }
 
         EditCopy heading ->
@@ -118,13 +141,13 @@ update msg model =
 
         UpdateCopy heading copy ->
             { model
-                | structure = addCopyToHeading model.structure heading copy
+                | document = addCopyToHeading heading copy model.document
                 , activeHeading =
                     case model.activeHeading of
-                        Just (Heading title _ children) ->
-                            Just (Heading title copy children)
+                        Just content ->
+                            Just { content | copy = copy }
 
-                        _ ->
+                        Nothing ->
                             Nothing
             }
 
@@ -193,43 +216,38 @@ newHeadingRevealLink parentHeading headingWithEditor newHeadingText =
                     [ text "Save" ]
                 ]
     in
-        case parentHeading of
-            Heading title copy _ ->
-                [ li []
-                    [ if showEditor then
-                        addEditorInput
-                      else
-                        openEditorControl
-                    ]
-                ]
+        [ li []
+            [ if showEditor then
+                addEditorInput
+              else
+                openEditorControl
+            ]
+        ]
 
 
 tableOfContents : List ( String, String ) -> Model -> Html Msg
-tableOfContents parentStyles { structure, headingWithEditor, newHeadingText } =
+tableOfContents parentStyles { document, headingWithEditor, newHeadingText } =
     let
-        renderHeading heading =
-            case heading of
-                Heading title copy children ->
-                    Just
-                        (li []
-                            [ a [ onClick (EditCopy heading), href "#" ] [ text title ]
-                            , ul []
-                                (List.concat
-                                    [ (walkTree children)
-                                    , (newHeadingRevealLink heading headingWithEditor newHeadingText)
-                                    ]
-                                )
-                            ]
-                        )
+        renderHeading content =
+            li []
+                [ a [ href "#", onClick (EditCopy content) ] [ text content.title ]
+                , ul []
+                    ((walkChildren content.children)
+                        ++ (newHeadingRevealLink content
+                                headingWithEditor
+                                newHeadingText
+                           )
+                    )
+                ]
 
-        walkTree =
-            List.filterMap renderHeading
+        walkChildren (Children children) =
+            List.map renderHeading children
     in
-        div [] [ ul [] (walkTree structure) ]
+        ul [] [ renderHeading document ]
 
 
 editorView : List ( String, String ) -> Model -> Html Msg
-editorView parentStyles { structure, activeHeading } =
+editorView parentStyles { document, activeHeading } =
     let
         styles =
             List.concat [ parentStyles, [] ]
@@ -237,14 +255,12 @@ editorView parentStyles { structure, activeHeading } =
         editor =
             case activeHeading of
                 Just heading ->
-                    case heading of
-                        Heading _ copy _ ->
-                            [ textarea
-                                [ Attrs.value copy
-                                , onInput (\text -> UpdateCopy heading text)
-                                ]
-                                []
-                            ]
+                    [ textarea
+                        [ Attrs.value heading.copy
+                        , onInput (\text -> UpdateCopy heading text)
+                        ]
+                        []
+                    ]
 
                 Nothing ->
                     []
@@ -275,23 +291,33 @@ rendererView parentStyles model =
                 _ ->
                     h5 [] [ text copy ]
 
-        renderedDocument document depth =
-            document
-                |> List.foldl
-                    (\content doc ->
-                        case content of
-                            Heading title copy children ->
-                                doc
-                                    ++ [ renderHeading depth title ]
-                                    ++ [ Markdown.toHtml [] copy ]
-                                    ++ [ (renderedDocument children (depth + 1)) ]
-                    )
-                    []
-                |> div [ style [ ( "overflow-y", "scroll" ) ] ]
+        renderedDocument depth content =
+            if depth == 0 then
+                -- Render as Title
+                div []
+                    [ h1
+                        [ class "title"
+                        , style [ ( "text-align", "center" ) ]
+                        ]
+                        [ text content.title ]
+                    , div []
+                        ([ (Markdown.toHtml [] content.copy) ]
+                            ++ (renderChildren (depth + 1) content.children)
+                        )
+                    ]
+            else
+                (renderHeading depth content.title)
+
+        renderChildren depth (Children children) =
+            List.map
+                (\child ->
+                    div []
+                        ([ renderHeading depth child.title ]
+                            ++ [ Markdown.toHtml [] child.copy ]
+                            ++ (renderChildren (depth + 1) child.children)
+                        )
+                )
+                children
     in
         section [ class "renderer", style styles ]
-            [ h1
-                [ style [ ( "text-align", "center" ) ] ]
-                [ text model.docTitle ]
-            , renderedDocument model.structure 1
-            ]
+            [ (renderedDocument 0 model.document) ]
