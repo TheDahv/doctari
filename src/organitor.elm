@@ -11,16 +11,13 @@ import String
 
 
 type alias Model =
-    { docTitle : String
-    , document : Content
+    { document : Content
     , headingWithEditor : Maybe Content
     , newHeadingText : String
     , activeHeading : Maybe Content
     }
 
 
-{-| TODO: Fix this type since there is only one version
--}
 type alias Content =
     { title : String
     , copy : String
@@ -39,27 +36,10 @@ mapChildren fn (Children children) =
 
 empty : Model
 empty =
-    { docTitle = ""
-    , document =
+    { document =
         { title = "Doc Title"
         , copy = ""
-        , children =
-            Children
-                [ { title = "Heading 1"
-                  , copy = "_lol some copy_"
-                  , children =
-                        Children
-                            [ { title = "Heading 1.1.1"
-                              , copy = "We needa clear dis up"
-                              , children = Children []
-                              }
-                            ]
-                  }
-                , { title = "Heading 2"
-                  , copy = "_lol some other copy_"
-                  , children = Children []
-                  }
-                ]
+        , children = Children []
         }
     , headingWithEditor = Nothing
     , newHeadingText = ""
@@ -72,7 +52,7 @@ empty =
 
 
 type Msg
-    = UpdateTitle String
+    = UpdateTitle Content String
     | NewHeadingEditor Content
     | NewHeadingText String
     | AddHeading Content
@@ -101,6 +81,18 @@ addNewHeading parentHeading newHeading document =
             }
 
 
+updateHeadingTitle : Content -> String -> Content -> Content
+updateHeadingTitle heading title document =
+    if document == heading then
+        { document | title = title }
+    else
+        { document
+            | children =
+                mapChildren (updateHeadingTitle heading title)
+                    document.children
+        }
+
+
 addCopyToHeading : Content -> String -> Content -> Content
 addCopyToHeading parentHeading newCopy document =
     if document == parentHeading then
@@ -117,8 +109,17 @@ addCopyToHeading parentHeading newCopy document =
 update : Msg -> Model -> Model
 update msg model =
     case msg of
-        UpdateTitle newTitle ->
-            { model | docTitle = newTitle }
+        UpdateTitle heading newTitle ->
+            { model
+                | document = updateHeadingTitle heading newTitle model.document
+                , activeHeading =
+                    case model.activeHeading of
+                        Just content ->
+                            Just { content | title = newTitle }
+
+                        Nothing ->
+                            Nothing
+            }
 
         NewHeadingEditor heading ->
             { model | headingWithEditor = Just heading }
@@ -163,15 +164,7 @@ view model =
             [ ( "flex-grow", "2" ) ]
     in
         div [ class "organitor wrapper" ]
-            [ header [ style [ ( "text-align", "center" ) ] ]
-                [ input
-                    [ placeholder "Document Title"
-                    , Attrs.value model.docTitle
-                    , onInput UpdateTitle
-                    , style [ ( "width", "75%" ) ]
-                    ]
-                    []
-                ]
+            [ header [ style [ ( "text-align", "center" ) ] ] []
             , div [ style [ ( "display", "flex" ) ] ]
                 [ tableOfContents [ ( "flex-grow", "1" ) ] model
                 , editorView paneStyles model
@@ -255,7 +248,14 @@ editorView parentStyles { document, activeHeading } =
         editor =
             case activeHeading of
                 Just heading ->
-                    [ textarea
+                    [ p []
+                        [ input
+                            [ Attrs.value heading.title
+                            , onInput (\text -> UpdateTitle heading text)
+                            ]
+                            []
+                        ]
+                    , textarea
                         [ Attrs.value heading.copy
                         , onInput (\text -> UpdateCopy heading text)
                         ]
