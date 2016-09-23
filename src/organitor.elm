@@ -3,6 +3,7 @@ module Organitor exposing (..)
 import Html exposing (..)
 import Html.Attributes as Attrs exposing (..)
 import Html.Events exposing (..)
+import Markdown
 import String
 
 
@@ -14,6 +15,7 @@ type alias Model =
     , structure : List Content
     , headingWithEditor : Maybe Content
     , newHeadingText : String
+    , activeHeading : Maybe Content
     }
 
 
@@ -22,14 +24,18 @@ empty =
     { docTitle = ""
     , structure =
         [ Heading "Heading 1.1"
-            [ Heading "Heading 1.1.1" [] ]
+            "_hello world_"
+            [ Heading "Heading 1.1.1" "" [] ]
         , Heading "Heading 1.2"
-            [ Heading "Heading 1.2.1" [] ]
+            ""
+            [ Heading "Heading 1.2.1" "" [] ]
         , Heading "Heading 1.3"
-            [ Heading "Heading 1.3.1" [] ]
+            ""
+            [ Heading "Heading 1.3.1" "" [] ]
         ]
     , headingWithEditor = Nothing
     , newHeadingText = ""
+    , activeHeading = Nothing
     }
 
 
@@ -42,32 +48,45 @@ type Msg
     | NewHeadingEditor Content
     | NewHeadingText String
     | AddHeading Content
+    | EditCopy Content
+    | UpdateCopy Content String
 
 
+{-| TODO: Fix this type since there is only one version
+-}
 type Content
-    = Heading String (List Content)
-    | Copy String
+    = Heading String String (List Content)
 
 
 addNewHeading : List Content -> Content -> Content -> List Content
 addNewHeading document parentHeading newHeading =
     -- Walk tree to find target heading
-    List.map
-        (\content ->
-            case content of
-                Heading title children ->
-                    if content == parentHeading then
-                        -- Found the heading. Add the new heading to its subheadings
-                        Heading title (children ++ [ newHeading ])
-                    else
-                        -- Ok, recurse through each child until we find it
-                        Heading title (addNewHeading children parentHeading newHeading)
+    document
+        |> List.map
+            (\content ->
+                case content of
+                    Heading title copy children ->
+                        if content == parentHeading then
+                            -- Found the heading. Add the new heading to its subheadings
+                            Heading title copy (children ++ [ newHeading ])
+                        else
+                            -- Ok, recurse through each child until we find it
+                            Heading title copy (addNewHeading children parentHeading newHeading)
+            )
 
-                _ ->
-                    -- We don't care about this if it's not a heading
-                    content
-        )
-        document
+
+addCopyToHeading : List Content -> Content -> String -> List Content
+addCopyToHeading document parentHeading newCopy =
+    document
+        |> List.map
+            (\content ->
+                case content of
+                    Heading title copy children ->
+                        if content == parentHeading then
+                            Heading title newCopy children
+                        else
+                            Heading title copy (addCopyToHeading children parentHeading newCopy)
+            )
 
 
 update : Msg -> Model -> Model
@@ -85,7 +104,7 @@ update msg model =
         AddHeading parentHeading ->
             let
                 newHeading =
-                    Heading model.newHeadingText []
+                    Heading model.newHeadingText "" []
             in
                 { model
                     | structure =
@@ -93,6 +112,21 @@ update msg model =
                             parentHeading
                             newHeading
                 }
+
+        EditCopy heading ->
+            { model | activeHeading = Just heading }
+
+        UpdateCopy heading copy ->
+            { model
+                | structure = addCopyToHeading model.structure heading copy
+                , activeHeading =
+                    case model.activeHeading of
+                        Just (Heading title _ children) ->
+                            Just (Heading title copy children)
+
+                        _ ->
+                            Nothing
+            }
 
 
 
@@ -103,13 +137,7 @@ view : Model -> Html Msg
 view model =
     let
         paneStyles =
-            [ ( "flex-grow", "2" )
-              {-
-                 , ( "width", "50%" )
-                 , ( "min-width", "50%" )
-                 , ( "max-width", "50%" )
-              -}
-            ]
+            [ ( "flex-grow", "2" ) ]
     in
         div [ class "organitor wrapper" ]
             [ header [ style [ ( "text-align", "center" ) ] ]
@@ -126,6 +154,7 @@ view model =
                 , editorView paneStyles model
                 , rendererView paneStyles model
                 ]
+              -- , div [] [ text <| toString model ]
             ]
 
 
@@ -165,7 +194,7 @@ newHeadingRevealLink parentHeading headingWithEditor newHeadingText =
                 ]
     in
         case parentHeading of
-            Heading title _ ->
+            Heading title copy _ ->
                 [ li []
                     [ if showEditor then
                         addEditorInput
@@ -174,19 +203,16 @@ newHeadingRevealLink parentHeading headingWithEditor newHeadingText =
                     ]
                 ]
 
-            _ ->
-                []
-
 
 tableOfContents : List ( String, String ) -> Model -> Html Msg
 tableOfContents parentStyles { structure, headingWithEditor, newHeadingText } =
     let
         renderHeading heading =
             case heading of
-                Heading title children ->
+                Heading title copy children ->
                     Just
                         (li []
-                            [ text title
+                            [ a [ onClick (EditCopy heading), href "#" ] [ text title ]
                             , ul []
                                 (List.concat
                                     [ (walkTree children)
@@ -196,9 +222,6 @@ tableOfContents parentStyles { structure, headingWithEditor, newHeadingText } =
                             ]
                         )
 
-                _ ->
-                    Nothing
-
         walkTree =
             List.filterMap renderHeading
     in
@@ -206,12 +229,27 @@ tableOfContents parentStyles { structure, headingWithEditor, newHeadingText } =
 
 
 editorView : List ( String, String ) -> Model -> Html Msg
-editorView parentStyles model =
+editorView parentStyles { structure, activeHeading } =
     let
         styles =
             List.concat [ parentStyles, [] ]
+
+        editor =
+            case activeHeading of
+                Just heading ->
+                    case heading of
+                        Heading _ copy _ ->
+                            [ textarea
+                                [ Attrs.value copy
+                                , onInput (\text -> UpdateCopy heading text)
+                                ]
+                                []
+                            ]
+
+                Nothing ->
+                    []
     in
-        section [ class "editor", style styles ] []
+        section [ class "editor", style styles ] editor
 
 
 rendererView : List ( String, String ) -> Model -> Html Msg
@@ -242,16 +280,14 @@ rendererView parentStyles model =
                 |> List.foldl
                     (\content doc ->
                         case content of
-                            Heading title children ->
+                            Heading title copy children ->
                                 doc
                                     ++ [ renderHeading depth title ]
+                                    ++ [ Markdown.toHtml [] copy ]
                                     ++ [ (renderedDocument children (depth + 1)) ]
-
-                            _ ->
-                                doc
                     )
                     []
-                |> div []
+                |> div [ style [ ( "overflow-y", "scroll" ) ] ]
     in
         section [ class "renderer", style styles ]
             [ h1
