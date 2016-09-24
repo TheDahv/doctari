@@ -4,6 +4,7 @@ import Html exposing (..)
 import Html.Attributes as Attrs exposing (..)
 import Html.Events exposing (..)
 import Markdown
+import Random
 import String
 
 
@@ -12,14 +13,17 @@ import String
 
 type alias Model =
     { document : Content
-    , headingWithEditor : Maybe Content
+    , newHeadingParentId : Maybe Int
     , newHeadingText : String
-    , activeHeading : Maybe Content
+    , activeID : Maybe Int
+    , idGenerator : Random.Generator Int
+    , idSeed : Random.Seed
     }
 
 
 type alias Content =
-    { title : String
+    { id : Int
+    , title : String
     , copy : String
     , children : Children
     }
@@ -37,14 +41,38 @@ mapChildren fn (Children children) =
 empty : Model
 empty =
     { document =
-        { title = "Doc Title"
+        { id = 0
+        , title = "Document Title"
         , copy = ""
         , children = Children []
         }
-    , headingWithEditor = Nothing
+    , newHeadingParentId = Nothing
     , newHeadingText = ""
-    , activeHeading = Nothing
+    , activeID = Nothing
+    , idGenerator =
+        Random.int 0 Random.maxInt
+        -- 6787 is just my birthday :) I thought about using the current time,
+        -- but that's more work than we need.
+    , idSeed = Random.initialSeed 6787
     }
+
+
+getById : Int -> Content -> Maybe Content
+getById id content =
+    if content.id == id then
+        Just content
+    else
+        case content.children of
+            -- Base case: At a child with no more children, and still no match
+            Children [] ->
+                Nothing
+
+            Children children ->
+                -- filterMap will drop any "Nothing" that comes up from the
+                -- children, so we know this will boil down to at least one
+                -- "Just content" or nothing at all.
+                List.filterMap (getById id) children
+                    |> List.head
 
 
 
@@ -53,21 +81,21 @@ empty =
 
 type Msg
     = UpdateTitle Content String
-    | NewHeadingEditor Content
+    | AddHeadingEditorToParent Int
     | NewHeadingText String
-    | AddHeading Content
+    | SaveNewHeadingToParent Int
     | EditCopy Content
     | UpdateCopy Content String
 
 
-addNewHeading : Content -> Content -> Content -> Content
-addNewHeading parentHeading newHeading document =
+addNewHeading : Int -> Content -> Content -> Content
+addNewHeading parentHeadingId newHeading document =
     let
         addToChildren (Children children) content =
-            Children (children ++ ([ content ]))
+            Children (children ++ [ content ])
     in
         -- Walk tree to find target heading
-        if document == parentHeading then
+        if document.id == parentHeadingId then
             -- Found the heading, so add this new content to the child
             { document
                 | children = addToChildren document.children newHeading
@@ -76,32 +104,33 @@ addNewHeading parentHeading newHeading document =
             { document
                 | children =
                     mapChildren
-                        (addNewHeading parentHeading newHeading)
+                        (addNewHeading parentHeadingId newHeading)
                         document.children
             }
 
 
-updateHeadingTitle : Content -> String -> Content -> Content
-updateHeadingTitle heading title document =
-    if document == heading then
+updateHeadingTitle : Int -> String -> Content -> Content
+updateHeadingTitle headingID title document =
+    if document.id == headingID then
         { document | title = title }
     else
         { document
             | children =
-                mapChildren (updateHeadingTitle heading title)
+                mapChildren
+                    (updateHeadingTitle headingID title)
                     document.children
         }
 
 
-addCopyToHeading : Content -> String -> Content -> Content
-addCopyToHeading parentHeading newCopy document =
-    if document == parentHeading then
+addCopyToHeading : Int -> String -> Content -> Content
+addCopyToHeading headingID newCopy document =
+    if document.id == headingID then
         { document | copy = newCopy }
     else
         { document
             | children =
                 mapChildren
-                    (addCopyToHeading parentHeading newCopy)
+                    (addCopyToHeading headingID newCopy)
                     document.children
         }
 
@@ -111,45 +140,40 @@ update msg model =
     case msg of
         UpdateTitle heading newTitle ->
             { model
-                | document = updateHeadingTitle heading newTitle model.document
-                , activeHeading =
-                    case model.activeHeading of
-                        Just content ->
-                            Just { content | title = newTitle }
-
-                        Nothing ->
-                            Nothing
+                | document =
+                    updateHeadingTitle heading.id newTitle model.document
             }
 
-        NewHeadingEditor heading ->
-            { model | headingWithEditor = Just heading }
+        AddHeadingEditorToParent headingID ->
+            { model | newHeadingParentId = Just headingID }
 
         NewHeadingText newText ->
             { model | newHeadingText = newText }
 
-        AddHeading parentHeading ->
+        SaveNewHeadingToParent parentHeadingId ->
             let
+                ( newId, newSeed ) =
+                    Random.step model.idGenerator model.idSeed
+
                 newHeading =
-                    Content model.newHeadingText "" (Children [])
+                    Content newId model.newHeadingText "" (Children [])
             in
                 { model
-                    | document =
-                        addNewHeading parentHeading newHeading model.document
+                    | idSeed = newSeed
+                    , document =
+                        addNewHeading
+                            parentHeadingId
+                            newHeading
+                            model.document
                 }
 
         EditCopy heading ->
-            { model | activeHeading = Just heading }
+            { model | activeID = Just heading.id }
 
         UpdateCopy heading copy ->
             { model
-                | document = addCopyToHeading heading copy model.document
-                , activeHeading =
-                    case model.activeHeading of
-                        Just content ->
-                            Just { content | copy = copy }
-
-                        Nothing ->
-                            Nothing
+                | document =
+                    addCopyToHeading heading.id copy model.document
             }
 
 
@@ -170,23 +194,22 @@ view model =
                 , editorView paneStyles model
                 , rendererView paneStyles model
                 ]
-              -- , div [] [ text <| toString model ]
             ]
 
 
-newHeadingRevealLink : Content -> Maybe Content -> String -> List (Html Msg)
-newHeadingRevealLink parentHeading headingWithEditor newHeadingText =
+newHeadingRevealLink : Content -> Maybe Int -> String -> List (Html Msg)
+newHeadingRevealLink parentHeading newHeadingParentId newHeadingText =
     let
         showEditor =
-            case headingWithEditor of
-                Just content ->
-                    content == parentHeading
+            case newHeadingParentId of
+                Just targetID ->
+                    parentHeading.id == targetID
 
                 _ ->
                     False
 
         openEditorMsg =
-            NewHeadingEditor parentHeading
+            AddHeadingEditorToParent parentHeading.id
 
         openEditorControl =
             a
@@ -204,7 +227,7 @@ newHeadingRevealLink parentHeading headingWithEditor newHeadingText =
                     []
                 , button
                     [ disabled (0 == String.length newHeadingText)
-                    , onClick (AddHeading parentHeading)
+                    , onClick (SaveNewHeadingToParent parentHeading.id)
                     ]
                     [ text "Save" ]
                 ]
@@ -219,15 +242,19 @@ newHeadingRevealLink parentHeading headingWithEditor newHeadingText =
 
 
 tableOfContents : List ( String, String ) -> Model -> Html Msg
-tableOfContents parentStyles { document, headingWithEditor, newHeadingText } =
+tableOfContents parentStyles { document, newHeadingParentId, newHeadingText } =
     let
         renderHeading content =
             li []
-                [ a [ href "#", onClick (EditCopy content) ] [ text content.title ]
+                [ a
+                    [ href "#"
+                    , onClick (EditCopy content)
+                    ]
+                    [ text content.title ]
                 , ul []
                     ((walkChildren content.children)
                         ++ (newHeadingRevealLink content
-                                headingWithEditor
+                                newHeadingParentId
                                 newHeadingText
                            )
                     )
@@ -240,10 +267,15 @@ tableOfContents parentStyles { document, headingWithEditor, newHeadingText } =
 
 
 editorView : List ( String, String ) -> Model -> Html Msg
-editorView parentStyles { document, activeHeading } =
+editorView parentStyles { document, activeID } =
     let
-        styles =
-            List.concat [ parentStyles, [] ]
+        activeHeading =
+            case activeID of
+                Just id ->
+                    getById id document
+
+                Nothing ->
+                    Nothing
 
         editor =
             case activeHeading of
@@ -265,15 +297,12 @@ editorView parentStyles { document, activeHeading } =
                 Nothing ->
                     []
     in
-        section [ class "editor", style styles ] editor
+        section [ class "editor", style parentStyles ] editor
 
 
 rendererView : List ( String, String ) -> Model -> Html Msg
 rendererView parentStyles model =
     let
-        styles =
-            List.concat [ parentStyles, [] ]
-
         renderHeading depth copy =
             case depth of
                 1 ->
@@ -301,12 +330,12 @@ rendererView parentStyles model =
                         ]
                         [ text content.title ]
                     , div []
-                        ([ (Markdown.toHtml [] content.copy) ]
-                            ++ (renderChildren (depth + 1) content.children)
+                        ([ Markdown.toHtml [] content.copy ]
+                            ++ renderChildren (depth + 1) content.children
                         )
                     ]
             else
-                (renderHeading depth content.title)
+                renderHeading depth content.title
 
         renderChildren depth (Children children) =
             List.map
@@ -314,10 +343,11 @@ rendererView parentStyles model =
                     div []
                         ([ renderHeading depth child.title ]
                             ++ [ Markdown.toHtml [] child.copy ]
-                            ++ (renderChildren (depth + 1) child.children)
+                            ++ renderChildren (depth + 1) child.children
                         )
                 )
                 children
     in
-        section [ class "renderer", style styles ]
-            [ (renderedDocument 0 model.document) ]
+        section
+            [ class "renderer", style parentStyles ]
+            [ renderedDocument 0 model.document ]
