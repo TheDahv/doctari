@@ -82,6 +82,7 @@ getById id content =
 type Msg
     = UpdateTitle Content String
     | AddHeadingEditorToParent Int
+    | CancelNewHeading
     | NewHeadingText String
     | SaveNewHeadingToParent Int
     | EditCopy Content
@@ -146,6 +147,9 @@ update msg model =
 
         AddHeadingEditorToParent headingID ->
             { model | newHeadingParentId = Just headingID }
+
+        CancelNewHeading ->
+            { model | newHeadingParentId = Nothing }
 
         NewHeadingText newText ->
             { model | newHeadingText = newText }
@@ -230,6 +234,9 @@ newHeadingRevealLink parentHeading newHeadingParentId newHeadingText =
                     , onClick (SaveNewHeadingToParent parentHeading.id)
                     ]
                     [ text "Save" ]
+                , button
+                    [ onClick CancelNewHeading ]
+                    [ text "Cancel" ]
                 ]
     in
         [ li []
