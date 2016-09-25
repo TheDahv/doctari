@@ -16,6 +16,7 @@ type alias Model =
     , newHeadingParentId : Maybe Int
     , newHeadingText : String
     , activeID : Maybe Int
+    , activeIndex : Maybe Int
     , idGenerator : Random.Generator Int
     , idSeed : Random.Seed
     }
@@ -38,6 +39,11 @@ mapChildren fn (Children children) =
     Children (List.map fn children)
 
 
+filterChildren : (Content -> Bool) -> Children -> Children
+filterChildren fn (Children children) =
+    Children (List.filter fn children)
+
+
 empty : Model
 empty =
     { document =
@@ -49,6 +55,7 @@ empty =
     , newHeadingParentId = Nothing
     , newHeadingText = ""
     , activeID = Nothing
+    , activeIndex = Nothing
     , idGenerator =
         Random.int 0 Random.maxInt
         -- 6787 is just my birthday :) I thought about using the current time,
@@ -75,6 +82,61 @@ getById id content =
                     |> List.head
 
 
+getParentOfId : Int -> Content -> Maybe Content
+getParentOfId id document =
+    let
+        matchingChildren =
+            case filterChildren (\child -> child.id == id) document.children of
+                Children children ->
+                    children
+    in
+        if 0 < List.length matchingChildren then
+            Just document
+        else
+            case document.children of
+                Children [] ->
+                    Nothing
+
+                Children children ->
+                    List.filterMap (getParentOfId id) children
+                        |> List.head
+
+
+moveChildToIndex : Int -> Content -> Children -> Children
+moveChildToIndex index movedHeading (Children children) =
+    let
+        cleaned =
+            List.filter
+                (\child -> not (child.id == movedHeading.id))
+                children
+
+        before =
+            List.take index cleaned
+
+        after =
+            List.drop index cleaned
+    in
+        Children (before ++ [ movedHeading ] ++ after)
+
+
+moveToIndex : Int -> Content -> Int -> Content -> Content
+moveToIndex parentID heading index content =
+    let
+        hasChildren =
+            case content.children of
+                Children children ->
+                    0 < List.length children
+
+        rearranged =
+            if content.id == parentID then
+                content.children |> moveChildToIndex index heading
+            else
+                content.children
+                    |> mapChildren (moveToIndex parentID heading index)
+    in
+        { content | children = rearranged }
+
+
 
 -- UPDATE
 
@@ -85,8 +147,9 @@ type Msg
     | CancelNewHeading
     | NewHeadingText String
     | SaveNewHeadingToParent Int
-    | EditCopy Content
+    | EditCopy Int Content
     | UpdateCopy Content String
+    | MoveToIndex Int Int
 
 
 addNewHeading : Int -> Content -> Content -> Content
@@ -171,14 +234,58 @@ update msg model =
                             model.document
                 }
 
-        EditCopy heading ->
-            { model | activeID = Just heading.id }
+        EditCopy idxWithinParent heading ->
+            { model
+                | activeID = Just heading.id
+                , activeIndex = Just idxWithinParent
+            }
 
         UpdateCopy heading copy ->
             { model
                 | document =
                     addCopyToHeading heading.id copy model.document
             }
+
+        MoveToIndex headingID index ->
+            let
+                parent =
+                    getParentOfId headingID model.document
+
+                heading =
+                    getById headingID model.document
+
+                maxMove =
+                    case parent of
+                        Just p ->
+                            case p.children of
+                                Children children ->
+                                    Just (List.length children)
+
+                        _ ->
+                            Nothing
+
+                shouldMove =
+                    case maxMove of
+                        Just max ->
+                            index >= 0 && index <= max
+
+                        Nothing ->
+                            False
+            in
+                case ( parent, heading, shouldMove ) of
+                    ( Just p, Just h, True ) ->
+                        { model
+                            | document =
+                                moveToIndex
+                                    p.id
+                                    h
+                                    index
+                                    model.document
+                            , activeIndex = Just index
+                        }
+
+                    _ ->
+                        model
 
 
 
@@ -251,11 +358,11 @@ newHeadingRevealLink parentHeading newHeadingParentId newHeadingText =
 tableOfContents : List ( String, String ) -> Model -> Html Msg
 tableOfContents parentStyles { document, newHeadingParentId, newHeadingText } =
     let
-        renderHeading content =
+        renderHeading idxWithinParent content =
             li []
                 [ a
                     [ href "#"
-                    , onClick (EditCopy content)
+                    , onClick (EditCopy idxWithinParent content)
                     ]
                     [ text content.title ]
                 , ul []
@@ -268,31 +375,48 @@ tableOfContents parentStyles { document, newHeadingParentId, newHeadingText } =
                 ]
 
         walkChildren (Children children) =
-            List.map renderHeading children
+            List.indexedMap renderHeading children
     in
-        ul [] [ renderHeading document ]
+        ul [] [ renderHeading 0 document ]
 
 
 editorView : List ( String, String ) -> Model -> Html Msg
-editorView parentStyles { document, activeID } =
+editorView parentStyles { document, activeID, activeIndex } =
     let
         activeHeading =
             case activeID of
                 Just id ->
                     getById id document
 
-                Nothing ->
+                _ ->
                     Nothing
 
+        orderingStyles =
+            [ ( "padding", "0 4px" ) ]
+
         editor =
-            case activeHeading of
-                Just heading ->
+            case ( activeHeading, activeIndex ) of
+                ( Just heading, Just index ) ->
                     [ p []
                         [ input
                             [ Attrs.value heading.title
                             , onInput (\text -> UpdateTitle heading text)
                             ]
                             []
+                        ]
+                    , p []
+                        [ a
+                            [ href "#"
+                            , style orderingStyles
+                            , onClick (MoveToIndex heading.id (index - 1))
+                            ]
+                            [ text "Move Up" ]
+                        , a
+                            [ href "#"
+                            , style orderingStyles
+                            , onClick (MoveToIndex heading.id (index + 1))
+                            ]
+                            [ text "Move Down" ]
                         ]
                     , textarea
                         [ Attrs.value heading.copy
@@ -301,7 +425,7 @@ editorView parentStyles { document, activeID } =
                         []
                     ]
 
-                Nothing ->
+                _ ->
                     []
     in
         section [ class "editor", style parentStyles ] editor
