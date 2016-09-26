@@ -356,6 +356,7 @@ update msg model =
                         model
 
 
+
 -- VIEW
 
 
@@ -363,15 +364,16 @@ view : Model -> Html Msg
 view model =
     let
         paneStyles =
-            [ ( "flex-grow", "2" ) ]
+            [ ( "display", "inline-block" ), ( "vertical-align", "top" ) ]
     in
         div [ class "organitor wrapper" ]
             [ header [ style [ ( "text-align", "center" ) ] ] []
-            , div [ style [ ( "display", "flex" ) ] ]
-                [ tableOfContents [ ( "flex-grow", "1" ) ] model
-                , editorView paneStyles model
-                , rendererView paneStyles model
+            , div [ style [] ]
+                [ tableOfContents (paneStyles ++ [ ( "width", "20%" ) ]) model
+                , editorView (paneStyles ++ [ ( "width", "26.67%" ) ]) model
+                , rendererView (paneStyles ++ [ ( "width", "53.33%" ) ]) model
                 ]
+              -- , div [] [ text <| toString model ]
             ]
 
 
@@ -444,7 +446,9 @@ tableOfContents parentStyles { document, newHeadingParentId, newHeadingText } =
         walkChildren (Children children) =
             List.indexedMap renderHeading children
     in
-        ul [] [ renderHeading 0 document ]
+        div [ style parentStyles ]
+            [ ul [] [ renderHeading 0 document ]
+            ]
 
 
 editorView : List ( String, String ) -> Model -> Html Msg
@@ -494,6 +498,7 @@ editorView parentStyles { document, activeID, activeIndex } =
                     , textarea
                         [ Attrs.value heading.copy
                         , onInput (\text -> UpdateCopy heading text)
+                        , style [ ( "width", "90%" ), ( "min-height", "30em" ) ]
                         ]
                         []
                     ]
@@ -501,7 +506,9 @@ editorView parentStyles { document, activeID, activeIndex } =
                 _ ->
                     []
     in
-        section [ class "editor", style parentStyles ] editor
+        div [ style parentStyles ]
+            [ section [ class "editor" ] editor
+            ]
 
 
 rendererView : List ( String, String ) -> Model -> Html Msg
@@ -552,6 +559,8 @@ rendererView parentStyles model =
                 )
                 children
     in
-        section
-            [ class "renderer", style parentStyles ]
-            [ renderedDocument 0 model.document ]
+        div [ style parentStyles ]
+            [ section
+                [ class "renderer" ]
+                [ renderedDocument 0 model.document ]
+            ]
