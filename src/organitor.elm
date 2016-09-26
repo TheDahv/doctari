@@ -44,6 +44,11 @@ filterChildren fn (Children children) =
     Children (List.filter fn children)
 
 
+appendChildren : Children -> List Content -> Children
+appendChildren (Children children) more =
+    Children (children ++ more)
+
+
 empty : Model
 empty =
     { document =
@@ -54,8 +59,8 @@ empty =
         }
     , newHeadingParentId = Nothing
     , newHeadingText = ""
-    , activeID = Nothing
-    , activeIndex = Nothing
+    , activeID = Just 0
+    , activeIndex = Just 0
     , idGenerator =
         Random.int 0 Random.maxInt
         -- 6787 is just my birthday :) I thought about using the current time,
@@ -137,6 +142,13 @@ moveToIndex parentID heading index content =
         { content | children = rearranged }
 
 
+promoteHeading : Content -> Content -> Content -> Content -> Content
+promoteHeading parent grandparent heading document =
+    document
+        |> removeHeading parent.id heading.id
+        |> addNewHeading grandparent.id heading
+
+
 
 -- UPDATE
 
@@ -150,6 +162,7 @@ type Msg
     | EditCopy Int Content
     | UpdateCopy Content String
     | MoveToIndex Int Int
+    | PromoteToParent Int
 
 
 addNewHeading : Int -> Content -> Content -> Content
@@ -171,6 +184,29 @@ addNewHeading parentHeadingId newHeading document =
                         (addNewHeading parentHeadingId newHeading)
                         document.children
             }
+
+
+removeHeading : Int -> Int -> Content -> Content
+removeHeading parentHeadingId headingId document =
+    let
+        removeFromChildren =
+            filterChildren (\{ id } -> not (id == headingId))
+
+        removeFromParent content =
+            if content.id == parentHeadingId then
+                { content | children = removeFromChildren content.children }
+            else
+                case content.children of
+                    Children [] ->
+                        content
+
+                    _ ->
+                        { content
+                            | children =
+                                mapChildren removeFromParent content.children
+                        }
+    in
+        removeFromParent document
 
 
 updateHeadingTitle : Int -> String -> Content -> Content
@@ -287,6 +323,37 @@ update msg model =
                     _ ->
                         model
 
+        PromoteToParent headingID ->
+            let
+                parent =
+                    getParentOfId
+                        headingID
+                        model.document
+
+                grandparent =
+                    case parent of
+                        Just p ->
+                            getParentOfId p.id model.document
+
+                        Nothing ->
+                            Nothing
+
+                heading =
+                    getById headingID model.document
+            in
+                case ( parent, grandparent, heading ) of
+                    ( Just parent, Just grandparent, Just heading ) ->
+                        { model
+                            | document =
+                                model.document
+                                    |> promoteHeading
+                                        parent
+                                        grandparent
+                                        heading
+                        }
+
+                    _ ->
+                        model
 
 
 -- VIEW
@@ -417,6 +484,12 @@ editorView parentStyles { document, activeID, activeIndex } =
                             , onClick (MoveToIndex heading.id (index + 1))
                             ]
                             [ text "Move Down" ]
+                        , a
+                            [ href "#"
+                            , style orderingStyles
+                            , onClick (PromoteToParent heading.id)
+                            ]
+                            [ text "Promote Heading" ]
                         ]
                     , textarea
                         [ Attrs.value heading.copy
