@@ -37,7 +37,7 @@ type Msg
 update msg { doctari } =
     case msg of
         DoctariMsg msg ->
-            { model | doctari = (Doctari.update msg doctari) }
+            { model | doctari = Doctari.update msg doctari }
 
 
 
