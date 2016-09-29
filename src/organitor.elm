@@ -3,6 +3,7 @@ module Organitor exposing (..)
 import Html exposing (..)
 import Html.Attributes as Attrs exposing (..)
 import Html.Events exposing (..)
+import Json.Encode as Encode
 import Markdown
 import Random
 import String
@@ -19,6 +20,7 @@ type alias Model =
     , activeIndex : Maybe Int
     , idGenerator : Random.Generator Int
     , idSeed : Random.Seed
+    , serialized : String
     }
 
 
@@ -49,6 +51,35 @@ appendChildren (Children children) more =
     Children (children ++ more)
 
 
+{-| Convert a document into a JSON-representation of the document. Useful for
+saving an in-progress document or sending it outside of the app for further
+processing.
+
+    let
+      doc = Content "Document Title" "" (Children
+        [ Content "First Heading" "" (Children []) ]
+      )
+    in
+      encodeDocument doc ==
+        "{ \"title\": \"Document Title\", \"copy\": \"\", \"children\": " ++
+          "[ { \"title\": \"First Heading\", \"copy\": \"\", \"children\": " ++
+          " [] } ] }"
+-}
+encodeDocument : Content -> Encode.Value
+encodeDocument content =
+    let
+        encodedChildren : Children -> List Encode.Value
+        encodedChildren (Children children) =
+            List.map encodeDocument children
+    in
+        Encode.object
+            [ ( "id", Encode.int content.id )
+            , ( "title", Encode.string content.title )
+            , ( "copy", Encode.string content.copy )
+            , ( "children", Encode.list (encodedChildren content.children) )
+            ]
+
+
 empty : Model
 empty =
     { document =
@@ -66,6 +97,7 @@ empty =
         -- 6787 is just my birthday :) I thought about using the current time,
         -- but that's more work than we need.
     , idSeed = Random.initialSeed 6787
+    , serialized = ""
     }
 
 
@@ -163,6 +195,7 @@ type Msg
     | UpdateCopy Content String
     | MoveToIndex Int Int
     | PromoteToParent Int
+    | SerializeModel
 
 
 addNewHeading : Int -> Content -> Content -> Content
@@ -355,6 +388,12 @@ update msg model =
                     _ ->
                         model
 
+        SerializeModel ->
+            { model
+                | serialized =
+                    Encode.encode 2 (encodeDocument model.document)
+            }
+
 
 
 -- VIEW
@@ -374,6 +413,14 @@ view model =
                 , rendererView (paneStyles ++ [ ( "width", "53.33%" ) ]) model
                 ]
               -- , div [] [ text <| toString model ]
+            , div []
+                [ h3 [] [ text "Serialized" ]
+                , button [ onClick SerializeModel ] [ text "Serialize" ]
+                , div
+                    [ style [ ( "font-family", "Courier, sans-serif" ) ]
+                    ]
+                    [ text model.serialized ]
+                ]
             ]
 
 
