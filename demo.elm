@@ -2,7 +2,7 @@ module Main exposing (..)
 
 import Html.App as App
 import Html exposing (..)
-import Organitor
+import Doctari
 
 
 main =
@@ -18,12 +18,12 @@ main =
 
 
 type alias Model =
-    { organitor : Organitor.Model
+    { doctari : Doctari.Model
     }
 
 
 model =
-    Model Organitor.empty
+    Model Doctari.empty
 
 
 
@@ -31,13 +31,13 @@ model =
 
 
 type Msg
-    = OrganitorMsg Organitor.Msg
+    = DoctariMsg Doctari.Msg
 
 
-update msg { organitor } =
+update msg { doctari } =
     case msg of
-        OrganitorMsg msg ->
-            { model | organitor = (Organitor.update msg organitor) }
+        DoctariMsg msg ->
+            { model | doctari = (Doctari.update msg doctari) }
 
 
 
@@ -47,7 +47,7 @@ update msg { organitor } =
 view model =
     let
         organitorView =
-            App.map OrganitorMsg (Organitor.view model.organitor)
+            App.map DoctariMsg (Doctari.view model.doctari)
     in
         div []
             [ organitorView ]

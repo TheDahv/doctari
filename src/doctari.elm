@@ -1,4 +1,4 @@
-module Organitor exposing (..)
+module Doctari exposing (..)
 
 import Html exposing (..)
 import Html.Attributes as Attrs exposing (..)
@@ -598,6 +598,10 @@ editorView parentStyles { document, activeID, activeIndex } =
                         [ input
                             [ Attrs.value heading.title
                             , onInput (\text -> UpdateTitle heading text)
+                            , style
+                                [ ( "font-size", "1.5em" )
+                                , ( "width", "90%" )
+                                ]
                             ]
                             []
                         ]
