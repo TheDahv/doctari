@@ -443,7 +443,7 @@ view model =
         paneStyles =
             [ ( "display", "inline-block" ), ( "vertical-align", "top" ) ]
     in
-        div [ class "organitor wrapper" ]
+        div [ class "doctari wrapper" ]
             [ header [ style [ ( "text-align", "center" ) ] ] []
             , div [ style [] ]
                 [ tableOfContents (paneStyles ++ [ ( "width", "20%" ) ]) model

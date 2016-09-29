@@ -46,8 +46,8 @@ update msg { doctari } =
 
 view model =
     let
-        organitorView =
+        doctariView =
             App.map DoctariMsg (Doctari.view model.doctari)
     in
         div []
-            [ organitorView ]
+            [ doctariView ]
