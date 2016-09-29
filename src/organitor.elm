@@ -196,6 +196,7 @@ type Msg
     | MoveToIndex Int Int
     | PromoteToParent Int
     | SerializeModel
+    | DeleteSection Int
 
 
 addNewHeading : Int -> Content -> Content -> Content
@@ -281,7 +282,10 @@ update msg model =
             { model | newHeadingParentId = Just headingID }
 
         CancelNewHeading ->
-            { model | newHeadingParentId = Nothing }
+            { model
+                | newHeadingParentId = Nothing
+                , newHeadingText = ""
+            }
 
         NewHeadingText newText ->
             { model | newHeadingText = newText }
@@ -296,6 +300,9 @@ update msg model =
             in
                 { model
                     | idSeed = newSeed
+                    , activeID = Just newHeading.id
+                    , newHeadingText = ""
+                    , newHeadingParentId = Nothing
                     , document =
                         addNewHeading
                             parentHeadingId
@@ -388,6 +395,27 @@ update msg model =
                     _ ->
                         model
 
+        DeleteSection headingID ->
+            -- TODO Somehow convince the consuming app to prompt the user to
+            -- confirm and feed that back in as a new action.
+            let
+                parent =
+                    getParentOfId headingID model.document
+            in
+                case parent of
+                    Just p ->
+                        { model
+                            | document =
+                                model.document
+                                    |> removeHeading
+                                        p.id
+                                        headingID
+                        }
+
+                    Nothing ->
+                        -- TODO Let the user know the world is ending...
+                        model
+
         SerializeModel ->
             { model
                 | serialized =
@@ -424,8 +452,13 @@ view model =
             ]
 
 
-newHeadingRevealLink : Content -> Maybe Int -> String -> List (Html Msg)
-newHeadingRevealLink parentHeading newHeadingParentId newHeadingText =
+newHeadingRevealLink :
+    ( String, String )
+    -> Content
+    -> Maybe Int
+    -> String
+    -> List (Html Msg)
+newHeadingRevealLink headingColor parentHeading newHeadingParentId newHeadingText =
     let
         showEditor =
             case newHeadingParentId of
@@ -442,6 +475,7 @@ newHeadingRevealLink parentHeading newHeadingParentId newHeadingText =
             a
                 [ href "#"
                 , onClick openEditorMsg
+                , style [ headingColor ]
                 ]
                 [ text "Add heading..." ]
 
@@ -472,29 +506,74 @@ newHeadingRevealLink parentHeading newHeadingParentId newHeadingText =
 
 
 tableOfContents : List ( String, String ) -> Model -> Html Msg
-tableOfContents parentStyles { document, newHeadingParentId, newHeadingText } =
+tableOfContents parentStyles model =
     let
-        renderHeading idxWithinParent content =
+        { document, newHeadingParentId, newHeadingText, activeID } =
+            model
+
+        headingStyles : ( String, String ) -> Content -> List ( String, String )
+        headingStyles colorStyle heading =
+            List.concat
+                [ [ colorStyle ]
+                , case activeID of
+                    Just id ->
+                        if id == heading.id then
+                            [ ( "font-weight", "700" ) ]
+                        else
+                            []
+
+                    _ ->
+                        []
+                ]
+
+        depthColor : Int -> ( String, String )
+        depthColor depth =
+            ( "color"
+            , case depth of
+                0 ->
+                    "black"
+
+                1 ->
+                    "#2ecc71"
+
+                2 ->
+                    "#3498db"
+
+                3 ->
+                    "#e67e22"
+
+                4 ->
+                    "#d35400"
+
+                _ ->
+                    "#8e44ad"
+            )
+
+        renderHeading : Int -> Int -> Content -> Html Msg
+        renderHeading depth idxWithinParent content =
             li []
                 [ a
                     [ href "#"
                     , onClick (EditCopy idxWithinParent content)
+                    , style (headingStyles (depthColor depth) content)
                     ]
                     [ text content.title ]
                 , ul []
-                    ((walkChildren content.children)
-                        ++ (newHeadingRevealLink content
+                    ((walkChildren (depth + 1) content.children)
+                        ++ (newHeadingRevealLink (depthColor depth)
+                                content
                                 newHeadingParentId
                                 newHeadingText
                            )
                     )
                 ]
 
-        walkChildren (Children children) =
-            List.indexedMap renderHeading children
+        walkChildren : Int -> Children -> List (Html Msg)
+        walkChildren depth (Children children) =
+            List.indexedMap (renderHeading depth) children
     in
         div [ style parentStyles ]
-            [ ul [] [ renderHeading 0 document ]
+            [ ul [] [ renderHeading 0 0 document ]
             ]
 
 
@@ -541,6 +620,11 @@ editorView parentStyles { document, activeID, activeIndex } =
                             , onClick (PromoteToParent heading.id)
                             ]
                             [ text "Promote Heading" ]
+                        , a
+                            [ href "#"
+                            , onClick (DeleteSection heading.id)
+                            ]
+                            [ text "Delete Section" ]
                         ]
                     , textarea
                         [ Attrs.value heading.copy
