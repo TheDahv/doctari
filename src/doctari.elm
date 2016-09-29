@@ -24,7 +24,7 @@ type Model
         { document : Content
         , newHeadingParentId : Maybe Int
         , newHeadingText : String
-        , activeID : Maybe Int
+        , activeId : Maybe Int
         , activeIndex : Maybe Int
         , idGenerator : Random.Generator Int
         , idSeed : Random.Seed
@@ -99,7 +99,7 @@ empty =
             }
         , newHeadingParentId = Nothing
         , newHeadingText = ""
-        , activeID = Just 0
+        , activeId = Just 0
         , activeIndex = Just 0
         , idGenerator =
             Random.int 0 Random.maxInt
@@ -166,7 +166,7 @@ moveChildToIndex index movedHeading (Children children) =
 
 
 moveToIndex : Int -> Content -> Int -> Content -> Content
-moveToIndex parentID heading index content =
+moveToIndex parentId heading index content =
     let
         hasChildren =
             case content.children of
@@ -174,11 +174,11 @@ moveToIndex parentID heading index content =
                     0 < List.length children
 
         rearranged =
-            if content.id == parentID then
+            if content.id == parentId then
                 content.children |> moveChildToIndex index heading
             else
                 content.children
-                    |> mapChildren (moveToIndex parentID heading index)
+                    |> mapChildren (moveToIndex parentId heading index)
     in
         { content | children = rearranged }
 
@@ -253,27 +253,27 @@ removeHeading parentHeadingId headingId document =
 
 
 updateHeadingTitle : Int -> String -> Content -> Content
-updateHeadingTitle headingID title document =
-    if document.id == headingID then
+updateHeadingTitle headingId title document =
+    if document.id == headingId then
         { document | title = title }
     else
         { document
             | children =
                 mapChildren
-                    (updateHeadingTitle headingID title)
+                    (updateHeadingTitle headingId title)
                     document.children
         }
 
 
 addCopyToHeading : Int -> String -> Content -> Content
-addCopyToHeading headingID newCopy document =
-    if document.id == headingID then
+addCopyToHeading headingId newCopy document =
+    if document.id == headingId then
         { document | copy = newCopy }
     else
         { document
             | children =
                 mapChildren
-                    (addCopyToHeading headingID newCopy)
+                    (addCopyToHeading headingId newCopy)
                     document.children
         }
 
@@ -288,8 +288,8 @@ update msg (Model model) =
                         updateHeadingTitle heading.id newTitle model.document
                 }
 
-            AddHeadingEditorToParent headingID ->
-                { model | newHeadingParentId = Just headingID }
+            AddHeadingEditorToParent headingId ->
+                { model | newHeadingParentId = Just headingId }
 
             CancelNewHeading ->
                 { model
@@ -310,7 +310,7 @@ update msg (Model model) =
                 in
                     { model
                         | idSeed = newSeed
-                        , activeID = Just newHeading.id
+                        , activeId = Just newHeading.id
                         , newHeadingText = ""
                         , newHeadingParentId = Nothing
                         , document =
@@ -322,7 +322,7 @@ update msg (Model model) =
 
             EditCopy idxWithinParent heading ->
                 { model
-                    | activeID = Just heading.id
+                    | activeId = Just heading.id
                     , activeIndex = Just idxWithinParent
                 }
 
@@ -332,13 +332,13 @@ update msg (Model model) =
                         addCopyToHeading heading.id copy model.document
                 }
 
-            MoveToIndex headingID index ->
+            MoveToIndex headingId index ->
                 let
                     parent =
-                        getParentOfId headingID model.document
+                        getParentOfId headingId model.document
 
                     heading =
-                        getById headingID model.document
+                        getById headingId model.document
 
                     maxMove =
                         case parent of
@@ -373,11 +373,11 @@ update msg (Model model) =
                         _ ->
                             model
 
-            PromoteToParent headingID ->
+            PromoteToParent headingId ->
                 let
                     parent =
                         getParentOfId
-                            headingID
+                            headingId
                             model.document
 
                     grandparent =
@@ -389,7 +389,7 @@ update msg (Model model) =
                                 Nothing
 
                     heading =
-                        getById headingID model.document
+                        getById headingId model.document
                 in
                     case ( parent, grandparent, heading ) of
                         ( Just parent, Just grandparent, Just heading ) ->
@@ -405,12 +405,12 @@ update msg (Model model) =
                         _ ->
                             model
 
-            DeleteSection headingID ->
+            DeleteSection headingId ->
                 -- TODO Somehow convince the consuming app to prompt the user to
                 -- confirm and feed that back in as a new action.
                 let
                     parent =
-                        getParentOfId headingID model.document
+                        getParentOfId headingId model.document
                 in
                     case parent of
                         Just p ->
@@ -419,7 +419,7 @@ update msg (Model model) =
                                     model.document
                                         |> removeHeading
                                             p.id
-                                            headingID
+                                            headingId
                             }
 
                         Nothing ->
@@ -469,8 +469,8 @@ newHeadingRevealLink headingColor parentHeading newHeadingParentId newHeadingTex
     let
         showEditor =
             case newHeadingParentId of
-                Just targetID ->
-                    parentHeading.id == targetID
+                Just targetId ->
+                    parentHeading.id == targetId
 
                 _ ->
                     False
@@ -515,14 +515,14 @@ newHeadingRevealLink headingColor parentHeading newHeadingParentId newHeadingTex
 tableOfContents : List ( String, String ) -> Model -> Html Msg
 tableOfContents parentStyles (Model model) =
     let
-        { document, newHeadingParentId, newHeadingText, activeID } =
+        { document, newHeadingParentId, newHeadingText, activeId } =
             model
 
         headingStyles : ( String, String ) -> Content -> List ( String, String )
         headingStyles colorStyle heading =
             List.concat
                 [ [ colorStyle ]
-                , case activeID of
+                , case activeId of
                     Just id ->
                         if id == heading.id then
                             [ ( "font-weight", "700" ) ]
@@ -585,10 +585,10 @@ tableOfContents parentStyles (Model model) =
 
 
 editorView : List ( String, String ) -> Model -> Html Msg
-editorView parentStyles (Model { document, activeID, activeIndex }) =
+editorView parentStyles (Model { document, activeId, activeIndex }) =
     let
         activeHeading =
-            case activeID of
+            case activeId of
                 Just id ->
                     getById id document
 
