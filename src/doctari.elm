@@ -1,4 +1,11 @@
-module Doctari exposing (..)
+module Doctari
+    exposing
+        ( Model
+        , Msg
+        , empty
+        , update
+        , view
+        )
 
 import Html exposing (..)
 import Html.Attributes as Attrs exposing (..)
@@ -12,16 +19,17 @@ import String
 -- MODEL
 
 
-type alias Model =
-    { document : Content
-    , newHeadingParentId : Maybe Int
-    , newHeadingText : String
-    , activeID : Maybe Int
-    , activeIndex : Maybe Int
-    , idGenerator : Random.Generator Int
-    , idSeed : Random.Seed
-    , serialized : String
-    }
+type Model
+    = Model
+        { document : Content
+        , newHeadingParentId : Maybe Int
+        , newHeadingText : String
+        , activeID : Maybe Int
+        , activeIndex : Maybe Int
+        , idGenerator : Random.Generator Int
+        , idSeed : Random.Seed
+        , serialized : String
+        }
 
 
 type alias Content =
@@ -82,23 +90,24 @@ encodeDocument content =
 
 empty : Model
 empty =
-    { document =
-        { id = 0
-        , title = "Document Title"
-        , copy = ""
-        , children = Children []
+    Model
+        { document =
+            { id = 0
+            , title = "Document Title"
+            , copy = ""
+            , children = Children []
+            }
+        , newHeadingParentId = Nothing
+        , newHeadingText = ""
+        , activeID = Just 0
+        , activeIndex = Just 0
+        , idGenerator =
+            Random.int 0 Random.maxInt
+            -- 6787 is just my birthday :) I thought about using the current time,
+            -- but that's more work than we need.
+        , idSeed = Random.initialSeed 6787
+        , serialized = ""
         }
-    , newHeadingParentId = Nothing
-    , newHeadingText = ""
-    , activeID = Just 0
-    , activeIndex = Just 0
-    , idGenerator =
-        Random.int 0 Random.maxInt
-        -- 6787 is just my birthday :) I thought about using the current time,
-        -- but that's more work than we need.
-    , idSeed = Random.initialSeed 6787
-    , serialized = ""
-    }
 
 
 getById : Int -> Content -> Maybe Content
@@ -270,157 +279,158 @@ addCopyToHeading headingID newCopy document =
 
 
 update : Msg -> Model -> Model
-update msg model =
-    case msg of
-        UpdateTitle heading newTitle ->
-            { model
-                | document =
-                    updateHeadingTitle heading.id newTitle model.document
-            }
-
-        AddHeadingEditorToParent headingID ->
-            { model | newHeadingParentId = Just headingID }
-
-        CancelNewHeading ->
-            { model
-                | newHeadingParentId = Nothing
-                , newHeadingText = ""
-            }
-
-        NewHeadingText newText ->
-            { model | newHeadingText = newText }
-
-        SaveNewHeadingToParent parentHeadingId ->
-            let
-                ( newId, newSeed ) =
-                    Random.step model.idGenerator model.idSeed
-
-                newHeading =
-                    Content newId model.newHeadingText "" (Children [])
-            in
+update msg (Model model) =
+    Model <|
+        case msg of
+            UpdateTitle heading newTitle ->
                 { model
-                    | idSeed = newSeed
-                    , activeID = Just newHeading.id
-                    , newHeadingText = ""
-                    , newHeadingParentId = Nothing
-                    , document =
-                        addNewHeading
-                            parentHeadingId
-                            newHeading
-                            model.document
+                    | document =
+                        updateHeadingTitle heading.id newTitle model.document
                 }
 
-        EditCopy idxWithinParent heading ->
-            { model
-                | activeID = Just heading.id
-                , activeIndex = Just idxWithinParent
-            }
+            AddHeadingEditorToParent headingID ->
+                { model | newHeadingParentId = Just headingID }
 
-        UpdateCopy heading copy ->
-            { model
-                | document =
-                    addCopyToHeading heading.id copy model.document
-            }
+            CancelNewHeading ->
+                { model
+                    | newHeadingParentId = Nothing
+                    , newHeadingText = ""
+                }
 
-        MoveToIndex headingID index ->
-            let
-                parent =
-                    getParentOfId headingID model.document
+            NewHeadingText newText ->
+                { model | newHeadingText = newText }
 
-                heading =
-                    getById headingID model.document
+            SaveNewHeadingToParent parentHeadingId ->
+                let
+                    ( newId, newSeed ) =
+                        Random.step model.idGenerator model.idSeed
 
-                maxMove =
-                    case parent of
-                        Just p ->
-                            case p.children of
-                                Children children ->
-                                    Just (List.length children)
+                    newHeading =
+                        Content newId model.newHeadingText "" (Children [])
+                in
+                    { model
+                        | idSeed = newSeed
+                        , activeID = Just newHeading.id
+                        , newHeadingText = ""
+                        , newHeadingParentId = Nothing
+                        , document =
+                            addNewHeading
+                                parentHeadingId
+                                newHeading
+                                model.document
+                    }
+
+            EditCopy idxWithinParent heading ->
+                { model
+                    | activeID = Just heading.id
+                    , activeIndex = Just idxWithinParent
+                }
+
+            UpdateCopy heading copy ->
+                { model
+                    | document =
+                        addCopyToHeading heading.id copy model.document
+                }
+
+            MoveToIndex headingID index ->
+                let
+                    parent =
+                        getParentOfId headingID model.document
+
+                    heading =
+                        getById headingID model.document
+
+                    maxMove =
+                        case parent of
+                            Just p ->
+                                case p.children of
+                                    Children children ->
+                                        Just (List.length children)
+
+                            _ ->
+                                Nothing
+
+                    shouldMove =
+                        case maxMove of
+                            Just max ->
+                                index >= 0 && index <= max
+
+                            Nothing ->
+                                False
+                in
+                    case ( parent, heading, shouldMove ) of
+                        ( Just p, Just h, True ) ->
+                            { model
+                                | document =
+                                    moveToIndex
+                                        p.id
+                                        h
+                                        index
+                                        model.document
+                                , activeIndex = Just index
+                            }
 
                         _ ->
-                            Nothing
+                            model
 
-                shouldMove =
-                    case maxMove of
-                        Just max ->
-                            index >= 0 && index <= max
+            PromoteToParent headingID ->
+                let
+                    parent =
+                        getParentOfId
+                            headingID
+                            model.document
 
-                        Nothing ->
-                            False
-            in
-                case ( parent, heading, shouldMove ) of
-                    ( Just p, Just h, True ) ->
-                        { model
-                            | document =
-                                moveToIndex
-                                    p.id
-                                    h
-                                    index
+                    grandparent =
+                        case parent of
+                            Just p ->
+                                getParentOfId p.id model.document
+
+                            Nothing ->
+                                Nothing
+
+                    heading =
+                        getById headingID model.document
+                in
+                    case ( parent, grandparent, heading ) of
+                        ( Just parent, Just grandparent, Just heading ) ->
+                            { model
+                                | document =
                                     model.document
-                            , activeIndex = Just index
-                        }
+                                        |> promoteHeading
+                                            parent
+                                            grandparent
+                                            heading
+                            }
 
-                    _ ->
-                        model
+                        _ ->
+                            model
 
-        PromoteToParent headingID ->
-            let
-                parent =
-                    getParentOfId
-                        headingID
-                        model.document
-
-                grandparent =
+            DeleteSection headingID ->
+                -- TODO Somehow convince the consuming app to prompt the user to
+                -- confirm and feed that back in as a new action.
+                let
+                    parent =
+                        getParentOfId headingID model.document
+                in
                     case parent of
                         Just p ->
-                            getParentOfId p.id model.document
+                            { model
+                                | document =
+                                    model.document
+                                        |> removeHeading
+                                            p.id
+                                            headingID
+                            }
 
                         Nothing ->
-                            Nothing
+                            -- TODO Let the user know the world is ending...
+                            model
 
-                heading =
-                    getById headingID model.document
-            in
-                case ( parent, grandparent, heading ) of
-                    ( Just parent, Just grandparent, Just heading ) ->
-                        { model
-                            | document =
-                                model.document
-                                    |> promoteHeading
-                                        parent
-                                        grandparent
-                                        heading
-                        }
-
-                    _ ->
-                        model
-
-        DeleteSection headingID ->
-            -- TODO Somehow convince the consuming app to prompt the user to
-            -- confirm and feed that back in as a new action.
-            let
-                parent =
-                    getParentOfId headingID model.document
-            in
-                case parent of
-                    Just p ->
-                        { model
-                            | document =
-                                model.document
-                                    |> removeHeading
-                                        p.id
-                                        headingID
-                        }
-
-                    Nothing ->
-                        -- TODO Let the user know the world is ending...
-                        model
-
-        SerializeModel ->
-            { model
-                | serialized =
-                    Encode.encode 2 (encodeDocument model.document)
-            }
+            SerializeModel ->
+                { model
+                    | serialized =
+                        Encode.encode 2 (encodeDocument model.document)
+                }
 
 
 
@@ -444,10 +454,7 @@ view model =
             , div []
                 [ h3 [] [ text "Serialized" ]
                 , button [ onClick SerializeModel ] [ text "Serialize" ]
-                , div
-                    [ style [ ( "font-family", "Courier, sans-serif" ) ]
-                    ]
-                    [ text model.serialized ]
+                , serializedView model
                 ]
             ]
 
@@ -506,7 +513,7 @@ newHeadingRevealLink headingColor parentHeading newHeadingParentId newHeadingTex
 
 
 tableOfContents : List ( String, String ) -> Model -> Html Msg
-tableOfContents parentStyles model =
+tableOfContents parentStyles (Model model) =
     let
         { document, newHeadingParentId, newHeadingText, activeID } =
             model
@@ -578,7 +585,7 @@ tableOfContents parentStyles model =
 
 
 editorView : List ( String, String ) -> Model -> Html Msg
-editorView parentStyles { document, activeID, activeIndex } =
+editorView parentStyles (Model { document, activeID, activeIndex }) =
     let
         activeHeading =
             case activeID of
@@ -647,7 +654,7 @@ editorView parentStyles { document, activeID, activeIndex } =
 
 
 rendererView : List ( String, String ) -> Model -> Html Msg
-rendererView parentStyles model =
+rendererView parentStyles (Model model) =
     let
         renderHeading depth copy =
             case depth of
@@ -699,3 +706,10 @@ rendererView parentStyles model =
                 [ class "renderer" ]
                 [ renderedDocument 0 model.document ]
             ]
+
+
+serializedView : Model -> Html Msg
+serializedView (Model model) =
+    div
+        [ style [ ( "font-family", "Courier, sans-serif" ) ] ]
+        [ text model.serialized ]
