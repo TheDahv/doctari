@@ -7,6 +7,68 @@ module Doctari
         , view
         )
 
+{-| This library exposes a component following the Elm Architecture that offers
+an ordered, organizable live-Markdown document editor that can serialize its
+contents to JSON.
+
+That is certainly a mouthful, but the idea is to offer users to create documents
+in a structured and organized way. Headings group related and supporting ideas
+that can be re-organized or re-emphasized as the document evolves.
+
+Again, since the component designs around the Elm Architecture, clients should
+be able to weave it in to the existing Model/Update/View scaffolding of their
+application.
+
+Probably the most annoying part is:
+
+- setting up a model
+- grafting the component action `Msg`s into that of your application
+
+For the first issue, Doctari exposes an `empty` value that offers a good
+starting point for the component's states with sane defaults.
+
+For the second issue, I'd like to come up with a way to keep `Msg` values with
+no relevance to the outside world internally contained. Until I figure that
+out, they are emitted, mapped, and rerouted back into the component by the
+consuming app:
+
+    type Msg = DoctariMsg Doctari.Msg
+
+    update msg model =
+        case msg of
+            DoctariMsg msg ->
+                { model |
+                    doctariModel =
+                        Doctari.update msg model.doctariModel
+                }
+
+    view : Model -> Html Msg
+    view model =
+        div [] [ App.map DoctariMsg Doctari.view ]
+
+You can see more complete usage in the [example][].
+
+TODO:
+
+- Find the most intelligent way to ask for a serialized version of the
+current value of the component's state
+- Find a decent way to create a component with an initial serialized state
+    (useful for rendering a version of the document stored on the server)
+
+[example]: https://github.com/thedahv/doctari/tree/master/examples/basic/main.elm
+
+# Model
+@docs Model
+@docs empty
+
+# Update
+@docs Msg
+@docs update
+
+# View
+@docs view
+-}
+
 import Html exposing (..)
 import Html.Attributes as Attrs exposing (..)
 import Html.Events exposing (..)
@@ -19,6 +81,13 @@ import String
 -- MODEL
 
 
+{-| The most important part of Doctari's state is the representation of its
+contents. The `document` field models a heading's ID, title, content, and
+list of children (which also happen to have the same structure).
+
+The rest of the fields represent changes in the organization of the headings
+within the document structure.
+-}
 type Model
     = Model
         { document : Content
@@ -88,6 +157,9 @@ encodeDocument content =
             ]
 
 
+{-| The empty document has a sample document title that the user can change,
+and no children. Users of this component should initialize it with this value.
+-}
 empty : Model
 empty =
     Model
@@ -194,6 +266,9 @@ promoteHeading parent grandparent heading document =
 -- UPDATE
 
 
+{-| Msg represents all the user actions to request changes to the document
+content or structure
+-}
 type Msg
     = UpdateTitle Content String
     | AddHeadingEditorToParent Int
@@ -278,6 +353,9 @@ addCopyToHeading headingId newCopy document =
         }
 
 
+{-| update follows the standard pattern of producing a new version of the
+document contents and/or structure based on user action.
+-}
 update : Msg -> Model -> Model
 update msg (Model model) =
     Model <|
@@ -437,6 +515,9 @@ update msg (Model model) =
 -- VIEW
 
 
+{-| view renders a document based on its contents and structure, as well as
+user controls to manipulate the document
+-}
 view : Model -> Html Msg
 view model =
     let
